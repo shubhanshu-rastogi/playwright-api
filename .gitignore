@@ -1,0 +1,12 @@
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# dependencies
+node_modules/
+
+# Playwright outputs
+playwright-report/
+test-results/
+blob-report/
