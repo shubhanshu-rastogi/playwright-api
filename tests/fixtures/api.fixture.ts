@@ -28,13 +28,20 @@ export const test = base.extend<{ api: APIRequestContext }>({
       throw new Error(`BASE_URL must start with http(s). Received: ${baseURL}`);
     }
 
+    // Build headers safely: only include x-api-key if it exists
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    const apiKey = (process.env.REQRES_API_KEY || '').trim();
+    if (apiKey) {
+      headers['x-api-key'] = apiKey;
+    }
+
     const api = await playwright.request.newContext({
       baseURL,
       timeout: 3000, // hard client timeout
-      extraHTTPHeaders: {
-        'Content-Type': 'application/json',
-        'x-api-key': (process.env.REQRES_API_KEY || '').trim(),
-      },
+      extraHTTPHeaders: headers,
     });
 
     const logs: ApiLog[] = [];
