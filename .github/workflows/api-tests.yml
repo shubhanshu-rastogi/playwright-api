@@ -27,7 +27,7 @@ jobs:
             REQRES_API_KEY: ${{ secrets.REQRES_API_KEY }}
             RUN_MS_CONTRACTS: ${{ secrets.RUN_MS_CONTRACTS }}
             CI: true
-        run: npx playwright test --grep @live --reporter=html,junit
+        run: npx playwright test --reporter=html,junit
 
       - name: Upload HTML report
         if: always()
