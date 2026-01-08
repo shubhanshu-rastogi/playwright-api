@@ -1,0 +1,11 @@
+{
+  "request": {
+    "method": "POST",
+    "url": "/api/users"
+  },
+  "response": {
+    "status": 201,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "id": "123", "name": "john", "job": "qa" }
+  }
+}

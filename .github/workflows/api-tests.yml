@@ -4,16 +4,31 @@ on:
   pull_request:
   push:
     branches: [ main ]
+  schedule:
+    - cron: "0 2 * * *" # nightly 2am UTC
 
 jobs:
   api-tests:
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - name: smoke
+            grep: "@smoke"
+          - name: component
+            grep: "@component"
+          - name: integration
+            grep: "@integration"
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -21,24 +36,65 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 
-      - name: Run tests
-        env:
-            BASE_URL: ${{ secrets.BASE_URL }}
-            REQRES_API_KEY: ${{ secrets.REQRES_API_KEY }}
-            RUN_MS_CONTRACTS: ${{ secrets.RUN_MS_CONTRACTS }}
-            CI: true
-        run: npx playwright test --reporter=html,junit
+      # Decide which suites run on which trigger:
+      - name: Skip suites not meant for this trigger
+        id: gate
+        run: |
+          EVENT="${{ github.event_name }}"
+          SUITE="${{ matrix.suite.name }}"
 
-      - name: Upload HTML report
-        if: always()
+          # PR: only smoke must run
+          if [ "$EVENT" = "pull_request" ] && [ "$SUITE" != "smoke" ]; then
+            echo "run=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # push to main: smoke + component (fast confidence)
+          if [ "$EVENT" = "push" ] && [ "$SUITE" = "integration" ]; then
+            echo "run=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # schedule: run all (including integration)
+          echo "run=true" >> $GITHUB_OUTPUT
+
+      - name: Run ${{ matrix.suite.name }} tests
+        if: steps.gate.outputs.run == 'true'
+        env:
+          BASE_URL: ${{ secrets.BASE_URL }}
+          REQRES_API_KEY: ${{ secrets.REQRES_API_KEY }}
+          RUN_MS_CONTRACTS: ${{ secrets.RUN_MS_CONTRACTS }}
+          CI: true
+        run: |
+          set -e
+          echo "Running suite=${{ matrix.suite.name }} grep=${{ matrix.suite.grep }}"
+          npx playwright test --grep "${{ matrix.suite.grep }}" --reporter=html,junit
+
+      # Guard: fail if 0 tests executed (prevents silent misconfig)
+      - name: Fail if no tests were executed
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          if grep -R "<testsuites" -n test-results >/dev/null 2>&1; then
+            COUNT=$(grep -Rho 'tests="[0-9]\+"' test-results | head -n 1 | sed 's/[^0-9]//g')
+            if [ "$COUNT" = "0" ]; then
+              echo "0 tests executed for suite=${{ matrix.suite.name }}. Check tags/grep."
+              exit 1
+            fi
+          else
+            echo "JUnit output not found. Check reporter config."
+            exit 1
+          fi
+
+      - name: Upload HTML report (${{ matrix.suite.name }})
+        if: always() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-html-report
+          name: playwright-html-report-${{ matrix.suite.name }}
           path: playwright-report
 
-      - name: Upload JUnit results
-        if: always()
+      - name: Upload JUnit results (${{ matrix.suite.name }})
+        if: always() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: junit-results
-          path: test-results
+          name: junit-results-${{ matrix.suite.name }}
+          path: test-results/**/*.xml
